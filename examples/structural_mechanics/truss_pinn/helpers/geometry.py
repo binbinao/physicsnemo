@@ -33,8 +33,8 @@ ELEMENTS = torch.tensor([
     [0, 1], [1, 2], [2, 3],      # bottom chord
     [4, 5], [5, 6],              # top chord
     [0, 4], [3, 6],              # end diagonals
-    [1, 4], [2, 5],              # verticals
-    [1, 5], [2, 6],              # inner diagonals (Pratt: slope down toward center)
+    [1, 4], [2, 5],              # inner diagonals, sloping up-left (i→j)
+    [1, 5], [2, 6],              # inner diagonals, sloping up-right (i→j)
 ])
 SUPPORT_DOFS = (0, 1, 7)          # pin node 0 (x,y), roller node 3 (y only)
 FREE_DOFS = tuple(d for d in range(14) if d not in SUPPORT_DOFS)  # 11 dofs

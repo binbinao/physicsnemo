@@ -25,7 +25,7 @@ def test_connectivity_is_triangulated():
     # every member connects distinct nodes, positive length
     L = element_lengths()
     assert L.shape == (11,)
-    assert torch.all(L > 1.0)  # shortest member is 2 m vertical / 2.23 m diagonal
+    assert torch.all(L > 1.4)  # shortest member is the sqrt(2) ≈ 1.414 m diagonals
     assert torch.all(ELEMENTS[:, 0] != ELEMENTS[:, 1])
 
 def test_support_and_free_dofs_partition():
@@ -42,3 +42,13 @@ def test_directions_are_unit():
 
 def test_material_constants():
     assert E == 3e9 and RHO == 1150.0 and AREA == 1e-4
+
+
+def test_geometry_tables_pinned():
+    assert torch.equal(NODES_XY, torch.tensor([
+        [0.0, 0.0], [2.0, 0.0], [4.0, 0.0], [6.0, 0.0],
+        [1.0, 1.0], [3.0, 1.0], [5.0, 1.0]]))
+    assert torch.equal(ELEMENTS, torch.tensor([
+        [0, 1], [1, 2], [2, 3], [4, 5], [5, 6], [0, 4], [3, 6],
+        [1, 4], [2, 5], [1, 5], [2, 6]]))
+    assert FREE_NODES == (1, 2, 4, 5, 6)
