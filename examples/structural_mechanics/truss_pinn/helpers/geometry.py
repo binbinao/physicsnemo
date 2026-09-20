@@ -14,7 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pratt truss geometry: single source of truth for nodes, members, supports, material."""
+"""Pratt truss geometry: single source of truth for nodes, members, supports, material.
+
+Load envelope note: P_MAX = 11871.275 N is FROZEN from the Task 4 stability
+scan (0.3 x min P_crit over the loadable-node x 8-direction grid,
+min P_crit = 39570.918 N at node 6, theta = pi); tests/test_stability.py.
+The envelope guarantees min eigvalsh(K_red + K_G_red) > 0 for any single
+nodal load |P| <= P_MAX on a loadable node -- the tangent stiffness stays
+positive definite, so modal_solve never enters the buckling regime.
+"""
 import torch
 
 E = 3.0e9          # Pa, nylon 6/6
@@ -22,7 +30,7 @@ RHO = 1150.0       # kg/m^3
 AREA = 1.0e-4      # m^2, 32x32 mm solid square
 INERTIA = AREA**2 / 12.0  # m^4
 
-P_MAX = 2000.0     # N, provisional; refrozen after stability scan (Task 4)
+P_MAX = 11871.275  # N, frozen from stability scan, tests/test_stability.py
 
 # node index: bottom 0..3 left→right, top 4..6 left→right
 NODES_XY = torch.tensor([
