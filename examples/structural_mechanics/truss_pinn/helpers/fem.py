@@ -14,10 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FEM assembly (global stiffness/mass) and batched static solve for the Pratt truss.
+"""FEM assembly (global stiffness/mass/geometric stiffness), batched static
+solve, and the prestressed modal solver for the Pratt truss.
 
 Matrices are assembled once in float64 on CPU (reference quality) and returned
-as fresh clones so callers may mutate them freely.
+as fresh clones so callers may mutate them freely. The modal solver reduces
+the generalized eigenproblem (K + K_G) phi = w^2 M phi on the free DOFs to a
+symmetric standard problem via a Cholesky transform of M.
 """
 import math
 
@@ -142,3 +145,93 @@ def axial_forces(u_full):
     s = s.to(_DTYPE)
     k = geometry.E * geometry.AREA / L                             # (11,)
     return (k * (c * dux + s * duy)).to(u_full.dtype)
+
+
+_KG_PATTERN = None
+_K_RED = None
+_M_CHOL = None
+
+
+def _kg_pattern():
+    """Per-member geometric-stiffness scatter (11, 14, 14), cached.
+
+    Member K_G is transverse-only: (N/L) * [[0,0,0,0],[0,1,0,-1],[0,0,0,0],
+    [0,-1,0,1]] on local dofs [xi, yi, xj, yj]; here N/L is factored out and
+    only the constant pattern is scattered (member dofs are distinct, so
+    plain advanced indexing suffices; member overlap is summed later).
+    """
+    global _KG_PATTERN
+    if _KG_PATTERN is None:
+        kg = torch.zeros(4, 4, dtype=_DTYPE)
+        kg[1, 1] = 1.0
+        kg[1, 3] = -1.0
+        kg[3, 1] = -1.0
+        kg[3, 3] = 1.0
+        dmap = _dof_map()                                   # (11, 4)
+        e_idx = torch.arange(11).view(11, 1, 1).expand(11, 4, 4)
+        rows = dmap[:, :, None].expand(11, 4, 4)
+        cols = dmap[:, None, :].expand(11, 4, 4)
+        G = torch.zeros(11, _N_DOF, _N_DOF, dtype=_DTYPE)
+        G[e_idx, rows, cols] = kg
+        _KG_PATTERN = G
+    return _KG_PATTERN
+
+
+def _reduced_K_and_M_chol():
+    """Cache the reduced stiffness (11, 11) and Cholesky factor of reduced mass."""
+    global _K_RED, _M_CHOL
+    if _K_RED is None:
+        K, M = _assemble()
+        idx = torch.tensor(geometry.FREE_DOFS)
+        _K_RED = K.index_select(-2, idx).index_select(-1, idx)
+        M_red = M.index_select(-2, idx).index_select(-1, idx)
+        _M_CHOL = torch.linalg.cholesky(M_red)              # lower triangular
+    return _K_RED, _M_CHOL
+
+
+def assemble_KG(u_full):
+    """Geometric stiffness from member axial forces, (..., 14) -> (..., 14, 14).
+
+    K_G = sum_e (N_e / L_e) * G_e with the transverse-only member pattern of
+    _kg_pattern: tension (N > 0) stiffens transverse motion, compression
+    softens it. Batched over the leading dims of u_full via einsum.
+    """
+    coef = axial_forces(u_full).to(_DTYPE) / geometry.element_lengths().to(_DTYPE)
+    return torch.einsum("...e,ekl->...kl", coef, _kg_pattern())
+
+
+def modal_solve(u_full, n_modes=3):
+    """Solve the prestressed eigenproblem (K + K_G) phi = w^2 M phi.
+
+    u_full: (..., 14) nodal displacement (prestress state) -> per-batch
+    (omegas (..., n_modes), modes (..., 11, n_modes)), frequencies ascending,
+    modes M-orthonormal. Reduction to a symmetric standard problem:
+    L_M = chol(M_red); A = L_M^-1 (K + K_G)_red L_M^-T; eigh(A);
+    phi = L_M^-T @ eigvecs. All arithmetic stays float64.
+    """
+    K_red, L_M = _reduced_K_and_M_chol()
+    S = K_red + reduce_matrix(assemble_KG(u_full))
+    # A = L^-1 S L^-T, done with two triangular solves (both broadcast):
+    #   Y1 = L^-1 S;  A = (L^-1 Y1^T)^T
+    Y1 = torch.linalg.solve_triangular(L_M, S, upper=False)
+    A = torch.linalg.solve_triangular(L_M, Y1.transpose(-1, -2), upper=False).transpose(-1, -2)
+    A = 0.5 * (A + A.transpose(-1, -2))                     # kill roundoff asymmetry
+    eigvals, eigvecs = torch.linalg.eigh(A)                 # ascending, orthonormal
+    omegas = torch.sqrt(eigvals[..., :n_modes])
+    modes = torch.linalg.solve_triangular(
+        L_M.transpose(-1, -2), eigvecs[..., :n_modes], upper=True
+    )
+    return omegas, modes
+
+
+def phase_fixed(phi):
+    """Flip mode signs so each mode's largest-magnitude entry is positive.
+
+    phi: (..., 11, n) with modes as columns -> same shape. Batched; a
+    globally negated mode maps to the identical fixed mode.
+    """
+    lead_idx = phi.abs().argmax(dim=-2)                     # (..., n)
+    lead = phi.gather(-2, lead_idx.unsqueeze(-2))           # (..., 1, n)
+    sign = lead.sign()
+    sign = torch.where(sign == 0, torch.ones_like(sign), sign)
+    return phi * sign
