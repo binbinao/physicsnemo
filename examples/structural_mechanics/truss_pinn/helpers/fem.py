@@ -20,7 +20,9 @@ solve, and the prestressed modal solver for the Pratt truss.
 Matrices are assembled once in float64 on CPU (reference quality) and returned
 as fresh clones so callers may mutate them freely. The modal solver reduces
 the generalized eigenproblem (K + K_G) phi = w^2 M phi on the free DOFs to a
-symmetric standard problem via a Cholesky transform of M.
+symmetric standard problem via a Cholesky transform of M; geometric
+stiffness is rotated to global coordinates along each member's transverse
+direction t_e = (-s_e, c_e).
 """
 import math
 
@@ -153,20 +155,27 @@ _M_CHOL = None
 
 
 def _kg_pattern():
-    """Per-member geometric-stiffness scatter (11, 14, 14), cached.
+    """Per-member geometric-stiffness matrices in GLOBAL coords, (11, 14, 14).
 
-    Member K_G is transverse-only: (N/L) * [[0,0,0,0],[0,1,0,-1],[0,0,0,0],
-    [0,-1,0,1]] on local dofs [xi, yi, xj, yj]; here N/L is factored out and
-    only the constant pattern is scattered (member dofs are distinct, so
-    plain advanced indexing suffices; member overlap is summed later).
+    The member-transverse direction is t_e = (-s_e, c_e); the geometric
+    stiffness resists only differential motion along t_e:
+    K_G_e = [[G_perp, -G_perp], [-G_perp, G_perp]] with G_perp = outer(t, t).
+    For a horizontal member t = (0, 1) this reduces exactly to the classic
+    local pattern ([[0,0],[0,1]] blocks, no axial terms); the rotation is
+    what makes inclined members see the full N/L in their true transverse
+    direction. Coefficient N_e/L_e is factored out and applied by callers;
+    member overlap is summed there (within a member the dofs are distinct,
+    so the per-member scatter needs no accumulation).
     """
     global _KG_PATTERN
     if _KG_PATTERN is None:
-        kg = torch.zeros(4, 4, dtype=_DTYPE)
-        kg[1, 1] = 1.0
-        kg[1, 3] = -1.0
-        kg[3, 1] = -1.0
-        kg[3, 3] = 1.0
+        c, s = geometry.element_directions()
+        t = torch.stack([-s, c], dim=-1).to(_DTYPE)         # (11, 2)
+        G_perp = t.unsqueeze(-1) * t.unsqueeze(-2)          # (11, 2, 2)
+        kg = torch.cat([                                   # (11, 4, 4)
+            torch.cat([G_perp, -G_perp], dim=-1),
+            torch.cat([-G_perp, G_perp], dim=-1),
+        ], dim=-2)
         dmap = _dof_map()                                   # (11, 4)
         e_idx = torch.arange(11).view(11, 1, 1).expand(11, 4, 4)
         rows = dmap[:, :, None].expand(11, 4, 4)
@@ -192,9 +201,11 @@ def _reduced_K_and_M_chol():
 def assemble_KG(u_full):
     """Geometric stiffness from member axial forces, (..., 14) -> (..., 14, 14).
 
-    K_G = sum_e (N_e / L_e) * G_e with the transverse-only member pattern of
-    _kg_pattern: tension (N > 0) stiffens transverse motion, compression
-    softens it. Batched over the leading dims of u_full via einsum.
+    K_G = sum_e (N_e / L_e) * G_e with G_e the member-transverse pattern
+    [[G_perp, -G_perp], [-G_perp, G_perp]], G_perp = outer(t_e, t_e),
+    t_e = (-s_e, c_e), in global coordinates: tension (N > 0) stiffens
+    transverse motion, compression softens it. Batched over the leading
+    dims of u_full via einsum.
     """
     coef = axial_forces(u_full).to(_DTYPE) / geometry.element_lengths().to(_DTYPE)
     return torch.einsum("...e,ekl->...kl", coef, _kg_pattern())

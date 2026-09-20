@@ -203,3 +203,87 @@ def test_modal_solve_batched_matches_single():
     assert omegas_b.shape == (4, 3) and modes_b.shape == (4, 11, 3)
     assert torch.allclose(omegas_b, omegas1.expand(4, -1), rtol=0.0, atol=1e-12)
     assert torch.allclose(modes_b, modes1.expand(4, -1, -1), rtol=0.0, atol=1e-12)
+
+
+def _force_state(target_N):
+    """Full displacement (14,) whose member forces match target_N (11,).
+
+    The compatibility map u -> N is linear and the Pratt truss is
+    statically determinate (11 members + 3 reactions = 14 = 2*7 dofs),
+    so the map has full row rank and any force vector is reachable.
+    Lets the K_G tests manufacture prestress states member by member.
+    """
+    from helpers.fem import axial_forces
+    cols = []
+    for d in range(14):
+        e = torch.zeros(14, dtype=torch.float64)
+        e[d] = 1.0
+        cols.append(axial_forces(e))
+    B = torch.stack(cols, dim=1)                            # (11, 14)
+    # lstsq on the underdetermined system is nondeterministic in this torch
+    # build; B B^T is SPD and well-conditioned (cond ~45), so solve the
+    # normal equations instead — deterministic and exact to ~3e-13.
+    return B.T @ torch.linalg.solve(B @ B.T, target_N)
+
+
+def test_KG_horizontal_member_matches_classic_pattern():
+    # regression: horizontal members must be untouched by the rotation to
+    # global coordinates. Member (0,1) carrying tension N0 only: its K_G
+    # block on dofs (0,1,2,3) is (N0/L) * [[0,0,0,0],[0,1,0,-1],[0,0,0,0],
+    # [0,-1,0,1]] — the classic local-coordinate transverse pattern.
+    from helpers.fem import assemble_KG
+    N0 = 500.0
+    target = torch.zeros(11, dtype=torch.float64)
+    target[0] = N0
+    KG = assemble_KG(_force_state(target))
+    coef = N0 / geometry.element_lengths()[0].item()
+    expected = coef * torch.tensor([
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, -1.0],
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, -1.0, 0.0, 1.0],
+    ], dtype=torch.float64)
+    idx = torch.tensor([0, 1, 2, 3])
+    assert torch.allclose(KG[idx][:, idx], expected, rtol=0.0, atol=1e-9 * coef)
+
+
+def test_KG_transverse_energy_is_rotation_invariant():
+    # the member K_G acts in the member-transverse direction t = (-s, c):
+    # a differential transverse displacement of node j (u_i = 0, u_j = t)
+    # must see exactly u' K_G u = N_e/L_e for ANY member orientation.
+    # A global-y-only pattern would give c_e^2 * N_e/L_e — only 0.5*N_e/L_e
+    # for the 45-degree diagonals.
+    from helpers.fem import assemble_KG, axial_forces
+    c, s = geometry.element_directions()
+    L = geometry.element_lengths().to(torch.float64)
+    t = torch.stack([-s, c], dim=-1).to(torch.float64)      # (11, 2)
+    N0 = 500.0
+    for e in range(11):
+        target = torch.zeros(11, dtype=torch.float64)
+        target[e] = N0
+        u_star = _force_state(target)
+        assert torch.allclose(axial_forces(u_star), target, rtol=1e-8, atol=1e-8)
+        KG = assemble_KG(u_star)                # == (N0/L_e) * S_e, others ~ 0
+        u = torch.zeros(14, dtype=torch.float64)
+        j = geometry.ELEMENTS[e][1].item()
+        u[2 * j:2 * j + 2] = t[e]
+        u_energy = u @ KG @ u
+        # tolerance is float32 geometry quantization: element_directions()
+        # is float32, so t_e is off-unit by ~1e-7; the 0.5x bug this test
+        # guards against errs at the 5e-1 relative level.
+        assert abs(u_energy.item() - N0 / L[e].item()) < 1e-6 * N0 / L[e].item()
+
+
+def test_KG_rigid_translation_zero_energy():
+    # geometric stiffness must not resist rigid translation: each member
+    # block [[G_perp, -G_perp], [-G_perp, G_perp]] annihilates u_i = u_j,
+    # so a uniform nodal translation sees exactly zero K_G energy even
+    # under nonzero prestress (manufactured uniform tension).
+    from helpers.fem import assemble_KG
+    target = torch.full((11,), 500.0, dtype=torch.float64)
+    KG = assemble_KG(_force_state(target))
+    for vx, vy in [(1.0, 0.0), (0.0, 1.0), (0.6, 0.8)]:
+        u = torch.zeros(14, dtype=torch.float64)
+        u[0::2] = vx
+        u[1::2] = vy
+        assert abs((u @ KG @ u).item()) < 1e-9
