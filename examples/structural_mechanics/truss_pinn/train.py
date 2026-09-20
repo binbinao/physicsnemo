@@ -28,9 +28,10 @@ Pipeline (spec section 2.4):
 3. Gate on the FEM physics self-tests (helpers.fem_selftest); any failure
    raises RuntimeError before the first training step.
 4. Train: a fresh collocation batch per step from a per-step seeded
-   generator (reproducible run), Adam on the composite PINN loss,
-   component logging every log_every steps and validation metrics on the
-   last 20 anchors every val_every steps.
+   generator (reproducible run), Adam on the composite PINN loss with an
+   optional StepLR decay (lr_step_size = 0 disables it), component
+   logging every log_every steps and validation metrics on the last 20
+   anchors every val_every steps.
 5. Save model.pt (state dict + config record + frozen P_MAX) into the
    Hydra run directory (outputs/<date>/<time>/ by default).
 
@@ -40,8 +41,10 @@ Run (from this directory)::
     python train.py epochs=50 device=cpu  # quick smoke test
 
 Untrained loss-component magnitudes (measured): eq ~ 4e7, sup ~ 1e-2,
-mode ~ 3e1, eig_reg ~ 3e7.  Training drives eq and eig_reg down by orders
-of magnitude while sup and mode fall toward zero.
+mode ~ 3e1, eig_reg ~ 3e7.  The default weights (100, 1e8, 1e6) balance
+the four gradient magnitudes so anchor supervision and equilibrium both
+converge (see the Task 9 acceptance report for the sweep that produced
+them); training drives all components down by orders of magnitude.
 """
 import logging
 import os
@@ -141,6 +144,14 @@ def _train(cfg: DictConfig, device: torch.device) -> tuple:
 
     residual_fn = make_residual_fn()
     optimizer = torch.optim.Adam(model.parameters(), lr=float(cfg.lr))
+    scheduler = None
+    if int(cfg.lr_step_size) > 0:
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=int(cfg.lr_step_size), gamma=float(cfg.lr_gamma)
+        )
+        logger.info(
+            f"lr schedule: StepLR(step_size={cfg.lr_step_size}, gamma={cfg.lr_gamma})"
+        )
     weights = (float(cfg.weight_eq), float(cfg.weight_sup), float(cfg.weight_mode))
     logger.info(
         f"training {cfg.epochs} steps on {device}: batch {cfg.batch_size}, "
@@ -161,6 +172,8 @@ def _train(cfg: DictConfig, device: torch.device) -> tuple:
         total, comp = pinn_loss(model, batch, residual_fn, anchors, weights)
         total.backward()
         optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
 
         done = step + 1
         if done % cfg.log_every == 0 or done == cfg.epochs or done == 1:

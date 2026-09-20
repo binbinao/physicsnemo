@@ -18,14 +18,16 @@
 #   python train.py epochs=50 device=cpu log_every=10
 
 seed: 95051
-epochs: 4000
+epochs: 40000
 batch_size: 256
-lr: 1.0e-3
-weight_eq: 1.0
-weight_sup: 100.0
-weight_mode: 10.0
+lr: 3.0e-3
+weight_eq: 100.0
+weight_sup: 1.0e8
+weight_mode: 1.0e6
+lr_step_size: 10000
+lr_gamma: 0.3
 freeze_p_max: true
 device: cuda
-log_every: 100
-val_every: 500
+log_every: 1000
+val_every: 2000
 test_seed: 20260920
