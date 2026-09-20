@@ -101,6 +101,24 @@ def test_anchor_grid_covers_and_disjoint_from_test():
     assert dist.min() > 0.0
 
 
+def test_anchor_labels_match_solve_case():
+    # pins the BATCHED _fem_labels path against FEM ground truth: every
+    # anchor row is recomputed via the single-case pipeline. A row-order or
+    # batching regression would still produce finite labels with omega > 0,
+    # so only this row-wise cross-check catches it. Tolerances reflect the
+    # LAPACK batched-vs-single blocking difference (~1e-14 rel; loads and
+    # matrices are bit-identical), NOT solver error.
+    from helpers.sampling import make_anchors, solve_case
+
+    a = make_anchors()
+    p = a["params"]
+    for i in range(p["n_idx"].shape[0]):
+        out = solve_case(int(p["n_idx"][i]), float(p["theta"][i]), float(p["P"][i]))
+        assert torch.allclose(a["u_red"][i], out["u_red"], rtol=0.0, atol=1e-12)
+        assert torch.allclose(a["omega"][i], out["omegas"], rtol=0.0, atol=1e-10)
+        assert torch.allclose(a["phi"][i], out["modes"], rtol=0.0, atol=1e-10)
+
+
 def test_solve_case_matches_pipeline():
     from helpers.sampling import solve_case
 

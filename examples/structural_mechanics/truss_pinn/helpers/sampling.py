@@ -19,16 +19,23 @@
 Design decisions:
 
 - sample_batch draws (n_idx, theta, P) from ONE generator in a fixed order,
-  so a seeded torch.Generator reproduces a batch bit-for-bit: n_idx is a
+  so a seeded torch.Generator reproduces a batch exactly: n_idx is a
   discrete uniform over geometry.LOADABLE_NODES via randint, theta ~
   U[0, 2pi), P ~ U[-P_MAX, +P_MAX]. generator=None falls through to the
-  default global RNG (torch's generator=None semantics).
+  default global RNG (torch's generator=None semantics). Determinism is
+  process-stable and pinned to the environment (torch 2.5.1 CPU) -- it is
+  not an absolute cross-version guarantee (RNG stream layout may change
+  between torch releases).
 - Load construction always goes through fem.nodal_load -- the single source
-  of truth for the load direction -- so anchor and test-set labels are
-  bit-identical to what the documented single-case pipeline (solve_case)
-  produces. Only the EXPENSIVE stages are batched: all N static solves run
-  as one batched torch.linalg.solve and all N eigenproblems as one batched
-  eigh inside fem.modal_solve (both are batched APIs by construction).
+  of truth for the load direction -- so the LOAD VECTORS are bit-identical
+  to what the documented single-case pipeline (solve_case) builds. The
+  labels computed from them are batched: all N static solves run as one
+  batched torch.linalg.solve and all N eigenproblems as one batched eigh
+  inside fem.modal_solve. Batched LAPACK blocking differs from the
+  single-case path, so anchor/test labels agree with solve_case only to
+  roundoff (~1e-14 relative; measured worst: omega 5e-12 abs) -- downstream
+  comparisons against recomputed single-case values need a tolerance
+  >= ~1e-12 relative, never bitwise equality.
 - Anchors form the explicit grid 5 loadable nodes x 4 directions x
   n_per_node |P| levels (linspace(0.1, 1.0) * P_MAX) x 2 signs = 120 cases
   at the defaults. The spec's 64 anchors could not cover all 5 loadable
