@@ -33,6 +33,7 @@ Contracts under test (spec sections 4.2 items 2-3 and 4.3):
 - solve_case is the single-case FEM pipeline and must reproduce the manual
   nodal_load -> solve_static -> modal_solve -> phase_fixed chain exactly.
 """
+
 import math
 
 import torch
@@ -64,6 +65,7 @@ def _manual_pipeline(n, theta, P):
 
 
 def test_anchor_grid_covers_and_disjoint_from_test():
+    """The 120-anchor grid covers all parameters and is disjoint from the 200-case test set."""
     from helpers.sampling import make_anchors, make_test_set
 
     a = make_anchors()
@@ -79,9 +81,13 @@ def test_anchor_grid_covers_and_disjoint_from_test():
     # coverage: every loadable node, all 4 directions, the 3 |P| levels, both signs
     assert set(p["n_idx"].tolist()) == set(geometry.LOADABLE_NODES)
     assert sorted(set(p["theta"].tolist())) == sorted(
-        [-math.pi / 2, 0.0, math.pi / 2, math.pi])
-    expected_p = sorted(set(
-        (torch.linspace(0.1, 1.0, 3, dtype=torch.float64) * geometry.P_MAX).tolist()))
+        [-math.pi / 2, 0.0, math.pi / 2, math.pi]
+    )
+    expected_p = sorted(
+        set(
+            (torch.linspace(0.1, 1.0, 3, dtype=torch.float64) * geometry.P_MAX).tolist()
+        )
+    )
     assert sorted(set(p["P"].abs().tolist())) == expected_p
     assert (p["P"] > 0).any() and (p["P"] < 0).any()
 
@@ -96,12 +102,14 @@ def test_anchor_grid_covers_and_disjoint_from_test():
         assert torch.isfinite(t[key]).all()
     assert (t["omega"] > 0).all()
     # disjointness on the continuous parameters: no test draw hits the grid
-    dist = ((t["theta"][:, None] - p["theta"][None, :]).abs()
-            + (t["P"][:, None] - p["P"][None, :]).abs() / geometry.P_MAX)
+    dist = (t["theta"][:, None] - p["theta"][None, :]).abs() + (
+        t["P"][:, None] - p["P"][None, :]
+    ).abs() / geometry.P_MAX
     assert dist.min() > 0.0
 
 
 def test_anchor_labels_match_solve_case():
+    """Every batched anchor label matches the single-case FEM pipeline exactly."""
     # pins the BATCHED _fem_labels path against FEM ground truth: every
     # anchor row is recomputed via the single-case pipeline. A row-order or
     # batching regression would still produce finite labels with omega > 0,
@@ -120,6 +128,7 @@ def test_anchor_labels_match_solve_case():
 
 
 def test_solve_case_matches_pipeline():
+    """solve_case matches the manual FEM chain and promotes 0-dim/1-dim inputs."""
     from helpers.sampling import solve_case
 
     out = solve_case(2, -1.0, 300.0)
@@ -131,8 +140,13 @@ def test_solve_case_matches_pipeline():
     assert torch.isfinite(out["modes"]).all()
 
     u14, u_red, N, omegas, modes = _manual_pipeline(2, -1.0, 300.0)
-    for key, ref in (("u14", u14), ("u_red", u_red), ("N", N),
-                     ("omegas", omegas), ("modes", modes)):
+    for key, ref in (
+        ("u14", u14),
+        ("u_red", u_red),
+        ("N", N),
+        ("omegas", omegas),
+        ("modes", modes),
+    ):
         assert torch.allclose(out[key], ref, rtol=0.0, atol=1e-12)
 
     # robust promotion: 0-dim and 1-dim tensor inputs land on the same case
@@ -145,6 +159,7 @@ def test_solve_case_matches_pipeline():
 
 
 def test_sample_batch_distribution():
+    """sample_batch draws are uniform over nodes, theta in [0, 2pi), P in [-P_MAX, P_MAX]."""
     from helpers.sampling import sample_batch
 
     n = 5000
@@ -171,6 +186,7 @@ def test_sample_batch_distribution():
 
 
 def test_test_set_deterministic():
+    """make_test_set is deterministic for a fixed seed, bit-identical across calls."""
     from helpers.sampling import make_test_set
 
     t1 = make_test_set()

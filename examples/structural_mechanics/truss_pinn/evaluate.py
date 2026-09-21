@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -65,19 +66,19 @@ import torch  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from helpers import geometry  # noqa: E402
-from helpers.fem import nodal_load, phase_fixed, reduce_matrix  # noqa: E402
+from helpers.fem import modal_solve, nodal_load, reduce_matrix  # noqa: E402
 from helpers.fem import assemble_K, solve_static  # noqa: E402
 from helpers.model import TrussPINN, encode_params  # noqa: E402
 from helpers.sampling import make_test_set  # noqa: E402
 
 _DTYPE = torch.float64
-_N_DOF = 2 * geometry.NODES_XY.shape[0]          # 14
+_N_DOF = 2 * geometry.NODES_XY.shape[0]  # 14
 _N_MODES = 3
 _FREE = torch.tensor(geometry.FREE_DOFS)
 _PHASE_EPS = 1e-12
 
-_DISP_THRESH = 0.05   # spec 2.4: displacement relative L2 error < 5%
-_FREQ_THRESH = 0.02   # spec 2.4: relative frequency error < 2%
+_DISP_THRESH = 0.05  # spec 2.4: displacement relative L2 error < 5%
+_FREQ_THRESH = 0.02  # spec 2.4: relative frequency error < 2%
 
 # Fixed load path for the frequency-load curves (spec 6 item 4).
 _CURVE_NODE = 1
@@ -149,8 +150,8 @@ def evaluate_test_set(model, device, test_seed):
     phi_hat = phi_hat.to(_DTYPE).cpu()
 
     u_ref = test["u_red"]
-    disp_rel = ((u_hat - u_ref).norm(dim=-1) / u_ref.norm(dim=-1))
-    freq_rel = ((omega_hat - test["omega"]).abs() / test["omega"])
+    disp_rel = (u_hat - u_ref).norm(dim=-1) / u_ref.norm(dim=-1)
+    freq_rel = (omega_hat - test["omega"]).abs() / test["omega"]
     phi_fixed = phase_fix(phi_hat, test["phi"])
     cos = (phi_fixed * test["phi"]).sum(dim=-2) / (
         phi_fixed.norm(dim=-2) * test["phi"].norm(dim=-2)
@@ -161,6 +162,7 @@ def evaluate_test_set(model, device, test_seed):
         "mode_cos_sim": cos,
     }
     return test, metrics
+
 
 def _stats(t):
     """max / median / P95 of a 1-D tensor -> python floats."""
@@ -177,9 +179,7 @@ def frequency_load_curves(model, device):
 
     Returns (Ps, omega_fem (41, 3), omega_pinn (41, 3)).
     """
-    Ps = torch.linspace(
-        -geometry.P_MAX, geometry.P_MAX, _CURVE_POINTS, dtype=_DTYPE
-    )
+    Ps = torch.linspace(-geometry.P_MAX, geometry.P_MAX, _CURVE_POINTS, dtype=_DTYPE)
     n_idx = torch.full((_CURVE_POINTS,), _CURVE_NODE, dtype=torch.int64)
     theta = torch.full((_CURVE_POINTS,), _CURVE_THETA, dtype=_DTYPE)
 
@@ -190,11 +190,9 @@ def frequency_load_curves(model, device):
         u_red = solve_static(K_red, f[_FREE])
         u14 = torch.zeros(_N_DOF, dtype=_DTYPE)
         u14[_FREE] = u_red
-        from helpers.fem import modal_solve  # noqa: PLC0415 (local loop use)
-
         omegas, _ = modal_solve(u14, n_modes=_N_MODES)
         om_fem.append(omegas)
-    omega_fem = torch.stack(om_fem)                              # (41, 3)
+    omega_fem = torch.stack(om_fem)  # (41, 3)
 
     with torch.no_grad():
         x = encode_params(n_idx, theta, Ps).to(device)
@@ -220,7 +218,6 @@ def plot_deformation_comparison(fig_path, test, model, device):
     """FEM undeformed/deformed vs PINN deformed overlay, 3 test cases."""
     nodes = geometry.NODES_XY.to(_DTYPE)
     elems = geometry.ELEMENTS
-    K_red = reduce_matrix(assemble_K())
     idx = torch.linspace(0, test["u_red"].shape[0] - 1, 3).long()
 
     fig, axes = plt.subplots(1, 3, figsize=(15.0, 4.6))
@@ -247,20 +244,23 @@ def plot_deformation_comparison(fig_path, test, model, device):
 
         for geom, kwargs in (
             (nodes, dict(color="0.6", lw=2.0, label="undeformed")),
-            (nodes + scale * u14_fem.view(-1, 2), dict(color="tab:blue", lw=2.0, label="FEM deformed")),
-            (nodes + scale * u14_pinn.view(-1, 2), dict(color="tab:red", lw=1.4, ls="--", label="PINN deformed")),
+            (
+                nodes + scale * u14_fem.view(-1, 2),
+                dict(color="tab:blue", lw=2.0, label="FEM deformed"),
+            ),
+            (
+                nodes + scale * u14_pinn.view(-1, 2),
+                dict(color="tab:red", lw=1.4, ls="--", label="PINN deformed"),
+            ),
         ):
             for e in elems.tolist():
                 ax.plot(geom[e, 0], geom[e, 1], **kwargs)
             ax.plot([], [], **kwargs)  # ensure legend entries exist
         # mark the loaded node
         ax.plot(nodes[n, 0], nodes[n, 1], "k^", ms=8)
-        disp_rel = (
-            (u_hat[0].to(_DTYPE).cpu() - u_red).norm() / u_red.norm()
-        ).item()
+        disp_rel = ((u_hat[0].to(_DTYPE).cpu() - u_red).norm() / u_red.norm()).item()
         ax.set_title(
-            f"case {i}: node {n}, P = {P:.0f} N\n"
-            f"disp rel L2 err = {disp_rel:.2%}"
+            f"case {i}: node {n}, P = {P:.0f} N\ndisp rel L2 err = {disp_rel:.2%}"
         )
         ax.set_aspect("equal")
         ax.axis("off")
@@ -307,9 +307,7 @@ def plot_frequency_load_curves(fig_path, Ps, omega_fem, omega_pinn):
 
 def main():
     """Run the acceptance evaluation; print the verdict."""
-    ckpt_path = (
-        sys.argv[1] if len(sys.argv) > 1 else find_latest_checkpoint()
-    )
+    ckpt_path = sys.argv[1] if len(sys.argv) > 1 else find_latest_checkpoint()
     if ckpt_path is None:
         raise SystemExit("no checkpoint found: pass a model.pt path")
     ckpt_path = os.path.abspath(ckpt_path)
@@ -328,15 +326,13 @@ def main():
     # --- frequency-load curves + trend agreement (spec 6 item 4)
     Ps, omega_fem, omega_pinn = frequency_load_curves(model, device)
     trend = [
-        trend_agreement(omega_fem[:, i], omega_pinn[:, i])
-        for i in range(_N_MODES)
+        trend_agreement(omega_fem[:, i], omega_pinn[:, i]) for i in range(_N_MODES)
     ]
 
     # --- acceptance verdict (spec 2.4)
     disp_pass = disp_stats["median"] < _DISP_THRESH and disp_stats["p95"] < _DISP_THRESH
     freq_pass = all(
-        s["median"] < _FREQ_THRESH and s["p95"] < _FREQ_THRESH
-        for s in freq_stats
+        s["median"] < _FREQ_THRESH and s["p95"] < _FREQ_THRESH for s in freq_stats
     )
     verdict = "PASS" if (disp_pass and freq_pass) else "FAIL"
 
@@ -352,9 +348,7 @@ def main():
         "disp_rel_l2": disp_stats,
         "freq_rel_err": {f"mode_{i + 1}": s for i, s in enumerate(freq_stats)},
         "mode_cos_sim": {f"mode_{i + 1}": s for i, s in enumerate(cos_stats)},
-        "trend_agreement": {
-            f"mode_{i + 1}": trend[i] for i in range(_N_MODES)
-        },
+        "trend_agreement": {f"mode_{i + 1}": trend[i] for i in range(_N_MODES)},
         "disp_pass": bool(disp_pass),
         "freq_pass": bool(freq_pass),
         "verdict": verdict,

@@ -17,4 +17,6 @@
 #   pip install -e /path/to/physicsnemo
 hydra-core>=1.3.0
 matplotlib>=3.10.0
+omegaconf>=2.3.0
+sympy>=1.12
 tqdm>=4.66.0

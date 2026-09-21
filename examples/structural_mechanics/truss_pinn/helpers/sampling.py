@@ -47,6 +47,7 @@ Design decisions:
   finite grid, so collisions are measure-zero.
 - Everything is float64 (fem discipline); anchors store f64 tensors.
 """
+
 import math
 
 import torch
@@ -63,7 +64,7 @@ from helpers.fem import (
 )
 
 _DTYPE = torch.float64
-_FREE = torch.tensor(geometry.FREE_DOFS)              # (11,) free-DOF indices
+_FREE = torch.tensor(geometry.FREE_DOFS)  # (11,) free-DOF indices
 _DEFAULT_ANCHOR_THETAS = (-0.5 * math.pi, 0.0, 0.5 * math.pi, math.pi)
 
 
@@ -80,7 +81,9 @@ def sample_batch(n_cases, generator=None):
     nodes = torch.tensor(geometry.LOADABLE_NODES, dtype=torch.int64)
     n_idx = nodes[torch.randint(nodes.numel(), (n_cases,), generator=generator)]
     theta = torch.rand(n_cases, dtype=_DTYPE, generator=generator) * (2.0 * math.pi)
-    P = (torch.rand(n_cases, dtype=_DTYPE, generator=generator) * 2.0 - 1.0) * geometry.P_MAX
+    P = (
+        torch.rand(n_cases, dtype=_DTYPE, generator=generator) * 2.0 - 1.0
+    ) * geometry.P_MAX
     return {"n_idx": n_idx, "theta": theta, "P": P}
 
 
@@ -92,15 +95,17 @@ def _fem_labels(n_idx, theta, P):
     solves run as single batched calls. Returns dict with keys 'u_red'
     (N, 11), 'omega' (N, 3), 'phi' (N, 11, 3), all f64, modes phase-fixed.
     """
-    f_red = torch.stack([
-        nodal_load(int(n), float(t), float(p))[_FREE]
-        for n, t, p in zip(n_idx.tolist(), theta.tolist(), P.tolist())
-    ])                                                  # (N, 11)
-    K_red = reduce_matrix(assemble_K())                 # (11, 11)
-    u_red = solve_static(K_red, f_red)                  # (N, 11)
+    f_red = torch.stack(
+        [
+            nodal_load(int(n), float(t), float(p))[_FREE]
+            for n, t, p in zip(n_idx.tolist(), theta.tolist(), P.tolist())
+        ]
+    )  # (N, 11)
+    K_red = reduce_matrix(assemble_K())  # (11, 11)
+    u_red = solve_static(K_red, f_red)  # (N, 11)
     u14 = torch.zeros((u_red.shape[0], 2 * geometry.NODES_XY.shape[0]), dtype=_DTYPE)
     u14[:, _FREE] = u_red
-    omegas, modes = modal_solve(u14)                    # (N, 3), (N, 11, 3)
+    omegas, modes = modal_solve(u14)  # (N, 3), (N, 11, 3)
     return {"u_red": u_red, "omega": omegas, "phi": phase_fixed(modes)}
 
 
@@ -128,8 +133,10 @@ def make_anchors(n_per_node=3, thetas=_DEFAULT_ANCHOR_THETAS):
         "theta": torch.tensor([c[1] for c in cases], dtype=_DTYPE),
         "P": torch.tensor([c[2] for c in cases], dtype=_DTYPE),
     }
-    return {"params": params,
-            **_fem_labels(params["n_idx"], params["theta"], params["P"])}
+    return {
+        "params": params,
+        **_fem_labels(params["n_idx"], params["theta"], params["P"]),
+    }
 
 
 def make_test_set(n_cases=200, seed=20260920):
@@ -156,10 +163,15 @@ def solve_case(n_idx, theta, P):
     'N' (11,), 'omegas' (3,), 'modes' (11, 3), all f64, modes phase-fixed.
     """
     f = nodal_load(int(n_idx), float(theta), float(P))
-    u_red = solve_static(reduce_matrix(assemble_K()), f[_FREE])   # (11,)
+    u_red = solve_static(reduce_matrix(assemble_K()), f[_FREE])  # (11,)
     u14 = torch.zeros(2 * geometry.NODES_XY.shape[0], dtype=_DTYPE)
     u14[_FREE] = u_red
     N = axial_forces(u14)
     omegas, modes = modal_solve(u14)
-    return {"u14": u14, "u_red": u_red, "N": N,
-            "omegas": omegas, "modes": phase_fixed(modes)}
+    return {
+        "u14": u14,
+        "u_red": u_red,
+        "N": N,
+        "omegas": omegas,
+        "modes": phase_fixed(modes),
+    }

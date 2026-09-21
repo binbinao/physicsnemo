@@ -45,6 +45,7 @@ load signs): P_MAX = 0.3 * min(P_crit) ~= 11871.275 N. geometry.P_MAX ships
 with this value; freeze_p_max re-derives it at runtime (train.py startup
 when cfg.freeze_p_max = true) and assigns geometry.P_MAX in place.
 """
+
 import math
 
 import torch
@@ -92,8 +93,9 @@ def _stable(P, n, theta):
     return bool(torch.isfinite(lam).all() and (lam > 0).all())
 
 
-def scan_p_crit(theta: float = -math.pi / 2, n: int = 1, p_hi: float = 2.0e5,
-                n_steps: int = 400) -> float:
+def scan_p_crit(
+    theta: float = -math.pi / 2, n: int = 1, p_hi: float = 2.0e5, n_steps: int = 400
+) -> float:
     """Critical load of load path (node n, direction theta) -> float.
 
     Coarse-to-fine: linear scan of [0, p_hi] in n_steps steps tracking the
@@ -113,11 +115,11 @@ def scan_p_crit(theta: float = -math.pi / 2, n: int = 1, p_hi: float = 2.0e5,
     eigs = _tangent_min_eigs(Ps, n, theta)
     bad = torch.nonzero(~((eigs > 0) & torch.isfinite(eigs)))
     if bad.numel() == 0:
-        return float("nan")                     # scan exhausted: caller detects
+        return float("nan")  # scan exhausted: caller detects
     i = int(bad[0, 0])
     if i == 0:
-        return 0.0                              # unstable already at P = 0
-    lo, hi = float(Ps[i - 1]), float(Ps[i])     # last stable / first unstable
+        return 0.0  # unstable already at P = 0
+    lo, hi = float(Ps[i - 1]), float(Ps[i])  # last stable / first unstable
     for _ in range(_BISECT_ITERS):
         mid = 0.5 * (lo + hi)
         if _stable(mid, n, theta):
@@ -144,7 +146,7 @@ def freeze_p_max(safety: float = 0.3, n_theta: int = 8, nodes=None) -> float:
         for k in range(int(n_theta)):
             theta = 2.0 * math.pi * k / int(n_theta)
             p = scan_p_crit(theta=theta, n=n)
-            if p == p:                           # skip NaN (exhausted scan)
+            if p == p:  # skip NaN (exhausted scan)
                 p_crits.append(p)
     if not p_crits:
         raise RuntimeError(

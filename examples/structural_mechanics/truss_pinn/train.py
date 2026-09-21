@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,6 +47,7 @@ the four gradient magnitudes so anchor supervision and equilibrium both
 converge (see the Task 9 acceptance report for the sweep that produced
 them); training drives all components down by orders of magnitude.
 """
+
 import logging
 import os
 import sys
@@ -71,7 +73,7 @@ logging.basicConfig(
 logger = PythonLogger("main")
 
 _COMPONENTS = ("eq", "sup", "mode", "eig_reg")
-_N_VAL_ANCHORS = 20  # held-out validation slice: the last 20 anchors
+_N_VAL_ANCHORS = 20  # in-sample monitoring slice: the last 20 anchors (also trained on)
 
 
 def _resolve_device(requested: str) -> torch.device:
@@ -84,7 +86,7 @@ def _resolve_device(requested: str) -> torch.device:
 
 
 def _validation_metrics(model, anchors: dict) -> dict:
-    """Relative errors of the CURRENT model on the held-out anchor slice.
+    """Relative errors of the CURRENT model on the in-sample monitoring slice.
 
     Displacement: relative L2 error against the FEM labels.  Frequency:
     mean over the 3 modes of |omega_hat / omega - 1|.  Informative only
@@ -96,9 +98,7 @@ def _validation_metrics(model, anchors: dict) -> dict:
     n = anchors["u_red"].shape[0]
     sl = slice(n - _N_VAL_ANCHORS, n)
     with torch.no_grad():
-        x = encode_params(
-            params["n_idx"][sl], params["theta"][sl], params["P"][sl]
-        )
+        x = encode_params(params["n_idx"][sl], params["theta"][sl], params["P"][sl])
         u_hat, log_omega_hat, _ = model(x)
         u_hat = u_hat.to(torch.float64)
         disp_rel = (
@@ -106,8 +106,10 @@ def _validation_metrics(model, anchors: dict) -> dict:
         ).item()
         omega_hat = log_omega_hat.to(torch.float64).exp()
         freq_rel = (
-            (omega_hat - anchors["omega"][sl]).abs() / anchors["omega"][sl]
-        ).mean().item()
+            ((omega_hat - anchors["omega"][sl]).abs() / anchors["omega"][sl])
+            .mean()
+            .item()
+        )
     return {"disp_rel_l2": disp_rel, "freq_rel_err": freq_rel}
 
 
@@ -177,9 +179,7 @@ def _train(cfg: DictConfig, device: torch.device) -> tuple:
 
         done = step + 1
         if done % cfg.log_every == 0 or done == cfg.epochs or done == 1:
-            parts = " ".join(
-                f"{name}={comp[name].item():.4e}" for name in _COMPONENTS
-            )
+            parts = " ".join(f"{name}={comp[name].item():.4e}" for name in _COMPONENTS)
             per_step = 1e3 * (time.time() - start) / done
             logger.info(f"step {done:6d}  {parts}  [{per_step:.1f} ms/step]")
         if cfg.val_every > 0 and (done % cfg.val_every == 0 or done == cfg.epochs):

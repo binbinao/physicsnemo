@@ -32,7 +32,7 @@ pair at the bottom ends.
 ```
 
 All members are nylon 6/6 with Young's modulus E = 3 GPa, density
-rho = 1150 kg/m^3, and a solid 32x32 mm square cross-section
+rho = 1150 kg/m^3, and a solid 10x10 mm square cross-section
 (A = 1e-4 m^2).
 
 The load is a single nodal force P applied at one of the 5 loadable nodes

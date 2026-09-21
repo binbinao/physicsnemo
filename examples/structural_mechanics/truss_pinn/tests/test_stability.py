@@ -30,6 +30,7 @@ pointwise minimum of affine functions of P, i.e. concave; a concave function
 positive at both segment ends is positive throughout, so checking the
 +-P_MAX edges (plus P = 0, where K_red is PD) covers the whole load box.
 """
+
 import math
 
 import torch
@@ -56,17 +57,19 @@ def _tangent_min_eig(P, n, theta):
 
 
 def test_p_crit_positive_and_finite():
+    """The default scan yields a finite P_crit of plausible magnitude (1e4 to 2e5 N)."""
     # default path: P downward at node 1. Measured P_crit ~ 8.44e4 N, so the
     # brief's pre-scan guess "p < 5e4" is superseded by the measured range
     # (the default scan ceiling p_hi = 2e5 was raised accordingly).
     from helpers.stability import scan_p_crit
 
     p = scan_p_crit()
-    assert p == p                          # NaN guard: exhausted scan -> NaN
-    assert 1.0e4 < p < 2.0e5               # plausible magnitude, inside scan range
+    assert p == p  # NaN guard: exhausted scan -> NaN
+    assert 1.0e4 < p < 2.0e5  # plausible magnitude, inside scan range
 
 
 def test_p_crit_brackets_tangent_sign_change():
+    """The tangent min eigenvalue is positive just below P_crit and nonpositive just above."""
     # P_crit is BY DEFINITION where the tangent stiffness loses positivity:
     # just below it the min eigenvalue must be positive, just above <= 0.
     from helpers.stability import scan_p_crit
@@ -77,15 +80,17 @@ def test_p_crit_brackets_tangent_sign_change():
 
 
 def test_p_crit_exhausted_scan_returns_nan():
+    """An exhausted scan (ceiling below the transition) returns NaN, never a wrong number."""
     # a scan ceiling far below the transition must return NaN (documented
     # contract), never a silently wrong number.
     from helpers.stability import scan_p_crit
 
     p = scan_p_crit(n=1, theta=-math.pi / 2, p_hi=1.0e3)
-    assert p != p                          # NaN
+    assert p != p  # NaN
 
 
 def test_frozen_p_max_stays_stable():
+    """The tangent stiffness stays PD across the full frozen load envelope, both signs."""
     # self-test: (K + K_G) min eig > 0 across the FULL frozen load range.
     # Runtime envelope exactly as train.py would freeze it for this path.
     from helpers.stability import scan_p_crit
@@ -106,6 +111,7 @@ def test_frozen_p_max_stays_stable():
 
 
 def test_p_max_frozen_matches_scan():
+    """The shipped geometry.P_MAX reproduces freeze_p_max() within 1% and assigns at runtime."""
     # the hardcoded geometry.P_MAX default must reproduce freeze_p_max()
     # (the node x direction grid min times safety) within 1%, and the
     # freeze must assign geometry.P_MAX at runtime.
@@ -114,7 +120,7 @@ def test_p_max_frozen_matches_scan():
     default = geometry.P_MAX
     try:
         p = freeze_p_max()
-        assert geometry.P_MAX == p                     # runtime assignment happened
+        assert geometry.P_MAX == p  # runtime assignment happened
         assert abs(p - default) <= 0.01 * abs(default)  # refrozen default within 1%
         # the shipped envelope keeps the tangent PD on the grid's own worst
         # load path (node 6, theta = pi) at both edges

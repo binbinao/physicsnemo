@@ -40,6 +40,7 @@ def _expected(u_red):
 
 
 def test_symbolic_residual_equals_assembled_K_times_u():
+    """The sympy-compiled residual equals K_red @ u on a random batch."""
     # self-test 6: elementwise agreement between sympy-compiled residual
     # and K_red @ u on a random batch (float32 input vs float64 reference).
     residual = make_residual_fn()
@@ -55,6 +56,7 @@ def test_symbolic_residual_equals_assembled_K_times_u():
 
 
 def test_residual_gradients_flow():
+    """Autograd flows through the compiled residual back to the displacements."""
     # the compiled residual must be differentiable w.r.t. displacements:
     # autograd flows through the SympyToTorch ops back to the input.
     residual = make_residual_fn()
@@ -73,6 +75,7 @@ def test_residual_gradients_flow():
 
 
 def test_residual_support_dofs_are_reaction_free():
+    """Support symbols are absent: the zero state compiles to exactly zero residual."""
     # guard against accidental support-term leakage: K_red @ 0 = 0 EXACTLY,
     # so the compiled residual of the zero state must be exactly zero.
     # If support symbols survived differentiation, reaction terms (constant
@@ -89,6 +92,7 @@ def test_residual_support_dofs_are_reaction_free():
 
 
 def test_residual_batch_broadcast_shapes():
+    """The residual broadcasts over any leading batch shape, matching K_red @ u."""
     # broadcasting: any leading batch shape over the 11 free DOFs works and
     # stays consistent with K_red @ u.
     residual = make_residual_fn()
@@ -107,6 +111,7 @@ def test_residual_batch_broadcast_shapes():
 
 
 def test_truss_equilibrium_pde_interface():
+    """The PDE exposes dim=1 and 11 linear equations keyed by free DOF."""
     # physicsnemo.sym PDE interface: dim set, 11 equations keyed by free DOF.
     pde = TrussEquilibrium()
     assert pde.dim == 1

@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,6 +31,7 @@ to train on a broken FEM stack without shelling out to pytest:
 All random draws use device-local generators: the global torch RNG belongs
 to train.py (model initialization) and must not be disturbed by this gate.
 """
+
 import math
 
 import torch
@@ -46,8 +48,8 @@ from helpers.fem import (
 )
 from helpers.truss_pde import make_residual_fn
 
-_N_DOF = 2 * geometry.NODES_XY.shape[0]       # 14
-_FREE = torch.tensor(geometry.FREE_DOFS)      # (11,) free-DOF indices
+_N_DOF = 2 * geometry.NODES_XY.shape[0]  # 14
+_FREE = torch.tensor(geometry.FREE_DOFS)  # (11,) free-DOF indices
 
 
 def _check_stiffness():
@@ -85,9 +87,9 @@ def _check_modal_orthonormality():
     assert omegas.shape == (3,) and modes.shape == (11, 3), "wrong modal shapes"
     M_red = reduce_matrix(assemble_M())
     gram = modes.T @ M_red @ modes
-    assert torch.allclose(
-        gram, torch.eye(3, dtype=torch.float64), atol=1e-8
-    ), "modes are not M-orthonormal"
+    assert torch.allclose(gram, torch.eye(3, dtype=torch.float64), atol=1e-8), (
+        "modes are not M-orthonormal"
+    )
     assert bool((omegas > 0).all()), "non-positive modal frequency"
 
 
@@ -149,14 +151,16 @@ def _check_residual_matches_assembled_k():
     K_red = reduce_matrix(assemble_K())
     # Device-local seeded draws: never touch the global torch RNG.
     gen = torch.Generator(device=torch.empty(0).device).manual_seed(0)
-    u = torch.randn(64, 11, generator=gen)               # float32 on device
+    u = torch.randn(64, 11, generator=gen)  # float32 on device
     r = residual(u)
     expected = u.to(torch.float64) @ K_red.T
     assert r.shape == (64, 11), "wrong residual shape"
     assert r.dtype == u.dtype, "residual must preserve the input dtype"
     assert torch.allclose(
-        r.to(torch.float64), expected,
-        rtol=1e-5, atol=1e-4 * expected.abs().max(),
+        r.to(torch.float64),
+        expected,
+        rtol=1e-5,
+        atol=1e-4 * expected.abs().max(),
     ), "symbolic residual disagrees with K_red @ u"
 
 

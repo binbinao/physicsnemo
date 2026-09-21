@@ -23,36 +23,55 @@ The envelope guarantees min eigvalsh(K_red + K_G_red) > 0 for any single
 nodal load |P| <= P_MAX on a loadable node -- the tangent stiffness stays
 positive definite, so modal_solve never enters the buckling regime.
 """
+
 import torch
 
-E = 3.0e9          # Pa, nylon 6/6
-RHO = 1150.0       # kg/m^3
-AREA = 1.0e-4      # m^2, 32x32 mm solid square
+E = 3.0e9  # Pa, nylon 6/6
+RHO = 1150.0  # kg/m^3
+AREA = 1.0e-4  # m^2, 10x10 mm solid square
 INERTIA = AREA**2 / 12.0  # m^4
 
 P_MAX = 11871.275  # N, frozen from stability scan, tests/test_stability.py
 
 # node index: bottom 0..3 left→right, top 4..6 left→right
-NODES_XY = torch.tensor([
-    [0.0, 0.0], [2.0, 0.0], [4.0, 0.0], [6.0, 0.0],
-    [1.0, 1.0], [3.0, 1.0], [5.0, 1.0],
-])
-ELEMENTS = torch.tensor([
-    [0, 1], [1, 2], [2, 3],      # bottom chord
-    [4, 5], [5, 6],              # top chord
-    [0, 4], [3, 6],              # end diagonals
-    [1, 4], [2, 5],              # inner diagonals, sloping up-left (i→j)
-    [1, 5], [2, 6],              # inner diagonals, sloping up-right (i→j)
-])
-SUPPORT_DOFS = (0, 1, 7)          # pin node 0 (x,y), roller node 3 (y only)
+NODES_XY = torch.tensor(
+    [
+        [0.0, 0.0],
+        [2.0, 0.0],
+        [4.0, 0.0],
+        [6.0, 0.0],
+        [1.0, 1.0],
+        [3.0, 1.0],
+        [5.0, 1.0],
+    ]
+)
+ELEMENTS = torch.tensor(
+    [
+        [0, 1],
+        [1, 2],
+        [2, 3],  # bottom chord
+        [4, 5],
+        [5, 6],  # top chord
+        [0, 4],
+        [3, 6],  # end diagonals
+        [1, 4],
+        [2, 5],  # inner diagonals, sloping up-left (i→j)
+        [1, 5],
+        [2, 6],  # inner diagonals, sloping up-right (i→j)
+    ]
+)
+SUPPORT_DOFS = (0, 1, 7)  # pin node 0 (x,y), roller node 3 (y only)
 FREE_DOFS = tuple(d for d in range(14) if d not in SUPPORT_DOFS)  # 11 dofs
 FREE_NODES = (1, 2, 4, 5, 6)
 LOADABLE_NODES = (1, 2, 4, 5, 6)
 
+
 def element_lengths() -> torch.Tensor:  # (11,)
+    """Return the length of each of the 11 truss members."""
     p = NODES_XY[ELEMENTS[:, 0]]
     q = NODES_XY[ELEMENTS[:, 1]]
     return (q - p).norm(dim=-1)
+
 
 def element_directions():
     """Return (cos, sin) unit direction of each member, i→j."""

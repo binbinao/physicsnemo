@@ -18,8 +18,8 @@
 
 Design decisions (locked at the plan review):
 
-- The network is a plain physicsnemo ``FullyConnected`` (8 -> 44) in float32;
-  the 44 outputs are sliced into u_hat (11 free DOFs), log omega_hat (3
+- The network is a plain physicsnemo ``FullyConnected`` (8 -> 47) in float32;
+  the 47 outputs are sliced into u_hat (11 free DOFs), log omega_hat (3
   modes) and phi_hat (3 modes x 11 free DOFs).  omega_hat = exp(log_omega)
   is positive by construction, matching the strictly positive eigenvalues
   of (K + K_G) phi = omega^2 M phi inside the frozen load envelope.
@@ -40,6 +40,7 @@ Design decisions (locked at the plan review):
 - Weights are fixed (no adaptation): lambda_eq = 1, lambda_sup = 100,
   lambda_mode = 10, eig_reg weight 1.
 """
+
 import torch
 import torch.nn.functional as F
 
@@ -57,8 +58,8 @@ from helpers.fem import (
 
 _DTYPE = torch.float64
 
-_N_DOF = 2 * geometry.NODES_XY.shape[0]            # 14
-_N_FREE = len(geometry.FREE_DOFS)                  # 11
+_N_DOF = 2 * geometry.NODES_XY.shape[0]  # 14
+_N_FREE = len(geometry.FREE_DOFS)  # 11
 _N_MODES = 3
 _FREE = torch.tensor(geometry.FREE_DOFS)
 _LOADABLE = tuple(geometry.LOADABLE_NODES)
@@ -93,9 +94,9 @@ def encode_params(n_idx, theta, P):
     """
     slots = _SLOT_LOOKUP[n_idx.long()]
     one_hot = F.one_hot(slots, num_classes=len(_LOADABLE)).to(torch.float32)
-    feats = torch.stack(
-        [theta.cos(), theta.sin(), P / geometry.P_MAX], dim=-1
-    ).to(torch.float32)
+    feats = torch.stack([theta.cos(), theta.sin(), P / geometry.P_MAX], dim=-1).to(
+        torch.float32
+    )
     return torch.cat([one_hot, feats], dim=-1)
 
 
@@ -106,7 +107,7 @@ class TrussPINN(torch.nn.Module):
         super().__init__()
         self.net = FullyConnected(
             in_features=8,
-            out_features=_N_FREE + _N_MODES + _N_FREE * _N_MODES,  # 44
+            out_features=_N_FREE + _N_MODES + _N_FREE * _N_MODES,  # 47
             layer_size=128,
             num_layers=4,
         )
@@ -116,8 +117,8 @@ class TrussPINN(torch.nn.Module):
         phi_hat (..., 11, 3)); phi_hat columns are the mode shapes."""
         out = self.net(x)
         u_hat = out[..., :_N_FREE]
-        log_omega_hat = out[..., _N_FREE:_N_FREE + _N_MODES]
-        phi_hat = out[..., _N_FREE + _N_MODES:].reshape(
+        log_omega_hat = out[..., _N_FREE : _N_FREE + _N_MODES]
+        phi_hat = out[..., _N_FREE + _N_MODES :].reshape(
             *out.shape[:-1], _N_FREE, _N_MODES
         )
         return u_hat, log_omega_hat, phi_hat
@@ -125,10 +126,12 @@ class TrussPINN(torch.nn.Module):
 
 def _batch_f_red(n_idx, theta, P):
     """Reduced load vectors (N, 11) f64, built through fem.nodal_load."""
-    return torch.stack([
-        nodal_load(int(n), float(t), float(p))[_FREE]
-        for n, t, p in zip(n_idx.tolist(), theta.tolist(), P.tolist())
-    ])
+    return torch.stack(
+        [
+            nodal_load(int(n), float(t), float(p))[_FREE]
+            for n, t, p in zip(n_idx.tolist(), theta.tolist(), P.tolist())
+        ]
+    )
 
 
 def _mode_component(log_omega_hat, phi_hat, phi_anchor, omega_anchor):
@@ -145,7 +148,7 @@ def _mode_component(log_omega_hat, phi_hat, phi_anchor, omega_anchor):
     omega_term = (log_omega_hat.to(_DTYPE) - omega_anchor.log()).pow(2).mean()
 
     phi_hat64 = phi_hat.to(_DTYPE)
-    overlap = (phi_hat64 * phi_anchor).sum(dim=-2)              # (N, 3)
+    overlap = (phi_hat64 * phi_anchor).sum(dim=-2)  # (N, 3)
     lead_hat = phi_hat64.abs().argmax(dim=-2)
     lead_anchor = phi_anchor.abs().argmax(dim=-2)
     fallback = (
@@ -197,9 +200,9 @@ def pinn_loss(model, batch, residual_fn, anchors, weights=(1.0, 100.0, 10.0)):
     with torch.no_grad():
         u14 = torch.zeros(f_red.shape[0], _N_DOF, dtype=_DTYPE)
         u14[:, _FREE] = solve_static(K_red, f_red)
-        K_t = K_red + reduce_matrix(assemble_KG(u14))          # (N, 11, 11)
-    omega_hat = log_omega_hat_b.to(_DTYPE).exp()               # positive
-    phi_hat_b64 = phi_hat_b.to(_DTYPE)                         # raw signs
+        K_t = K_red + reduce_matrix(assemble_KG(u14))  # (N, 11, 11)
+    omega_hat = log_omega_hat_b.to(_DTYPE).exp()  # positive
+    phi_hat_b64 = phi_hat_b.to(_DTYPE)  # raw signs
     lhs = torch.matmul(K_t, phi_hat_b64)
     rhs = omega_hat.pow(2).unsqueeze(-2) * torch.matmul(M_red, phi_hat_b64)
     eig_reg = (lhs - rhs).pow(2).mean()
@@ -209,9 +212,7 @@ def pinn_loss(model, batch, residual_fn, anchors, weights=(1.0, 100.0, 10.0)):
     x_a = encode_params(params["n_idx"], params["theta"], params["P"])
     u_hat_a, log_omega_hat_a, phi_hat_a = model(x_a)
     sup = (u_hat_a.to(_DTYPE) - anchors["u_red"]).pow(2).mean()
-    mode = _mode_component(
-        log_omega_hat_a, phi_hat_a, anchors["phi"], anchors["omega"]
-    )
+    mode = _mode_component(log_omega_hat_a, phi_hat_a, anchors["phi"], anchors["omega"])
 
     total = w_eq * eq + w_sup * sup + w_mode * mode + eig_reg
     return total, {"eq": eq, "sup": sup, "mode": mode, "eig_reg": eig_reg}

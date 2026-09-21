@@ -61,16 +61,15 @@ class TrussEquilibrium(PDE):
     def __init__(self):
         self.dim = 1
 
-        L = geometry.element_lengths()           # (11,) float32
-        c, s = geometry.element_directions()     # (11,) float32 each
+        L = geometry.element_lengths()  # (11,) float32
+        c, s = geometry.element_directions()  # (11,) float32 each
         self.u_symbols = {d: sp.Symbol(f"u_{d}", real=True) for d in range(_N_DOF)}
         u = self.u_symbols
 
         energy = 0
         for e, (i, j) in enumerate(geometry.ELEMENTS.tolist()):
-            elong = (
-                float(c[e]) * (u[2 * j] - u[2 * i])
-                + float(s[e]) * (u[2 * j + 1] - u[2 * i + 1])
+            elong = float(c[e]) * (u[2 * j] - u[2 * i]) + float(s[e]) * (
+                u[2 * j + 1] - u[2 * i + 1]
             )
             energy += geometry.E * geometry.AREA / (2.0 * float(L[e])) * elong**2
 
@@ -93,9 +92,7 @@ def make_residual_fn():
         ``K_red @ u_red`` broadcast over the batch.
     """
     pde = TrussEquilibrium()
-    modules = {
-        name: SympyToTorch(expr, name) for name, expr in pde.equations.items()
-    }
+    modules = {name: SympyToTorch(expr, name) for name, expr in pde.equations.items()}
     free_dofs = geometry.FREE_DOFS
     support_dofs = geometry.SUPPORT_DOFS
 

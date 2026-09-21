@@ -18,7 +18,7 @@
 """PINN model + composite loss tests (spec sections 4.1 model and 4.2 loss).
 
 Contracts under test:
-- TrussPINN wraps physicsnemo FullyConnected(8 -> 44) and slices the output
+- TrussPINN wraps physicsnemo FullyConnected(8 -> 47) and slices the output
   into u_hat (..., 11), log_omega_hat (..., 3), phi_hat (..., 11, 3).
 - encode_params one-hot-encodes the loadable-node POSITION (n_idx holds
   node indices, mapped to their slot in geometry.LOADABLE_NODES) and
@@ -32,6 +32,7 @@ Contracts under test:
   convention: a perfectly predicted but globally flipped mode carries ~zero
   mode loss (a missing phase fix would instead score it O(1)).
 """
+
 import torch
 
 from helpers import geometry
@@ -61,6 +62,7 @@ def _grads(model):
 
 
 def test_shapes_and_normalization():
+    """encode_params builds the (..., 8) feature and model slices are correctly shaped."""
     model = _seeded_model()
     n = torch.tensor([1, 4])
     theta = torch.tensor([0.3, 1.2])
@@ -83,26 +85,29 @@ def test_shapes_and_normalization():
 
 
 def test_loss_components_finite_and_weighted():
+    """All four loss components are finite scalars and total is their exact weighted sum."""
     model = _seeded_model()
     batch = _seeded_batch()
-    total, comp = pinn_loss(model, batch, _RESIDUAL_FN, _ANCHORS,
-                            weights=(1.0, 100.0, 10.0))
+    total, comp = pinn_loss(
+        model, batch, _RESIDUAL_FN, _ANCHORS, weights=(1.0, 100.0, 10.0)
+    )
     for key in ("eq", "sup", "mode", "eig_reg"):
         assert isinstance(comp[key], torch.Tensor)
         assert comp[key].ndim == 0
         assert torch.isfinite(comp[key]).all(), key
     assert torch.isfinite(total).all()
     # exact float arithmetic: the total is built from these same tensors.
-    rebuilt = (comp["eq"] + 100.0 * comp["sup"]
-               + 10.0 * comp["mode"] + comp["eig_reg"])
+    rebuilt = comp["eq"] + 100.0 * comp["sup"] + 10.0 * comp["mode"] + comp["eig_reg"]
     assert total == rebuilt
 
 
 def test_loss_gradients_flow():
+    """Gradients reach the parameters through both the residual and eig_reg paths."""
     model = _seeded_model()
     batch = _seeded_batch()
-    total, comp = pinn_loss(model, batch, _RESIDUAL_FN, _ANCHORS,
-                            weights=(1.0, 100.0, 10.0))
+    total, comp = pinn_loss(
+        model, batch, _RESIDUAL_FN, _ANCHORS, weights=(1.0, 100.0, 10.0)
+    )
 
     model.zero_grad(set_to_none=True)
     total.backward(retain_graph=True)
@@ -122,6 +127,8 @@ def test_loss_gradients_flow():
 
 
 def test_phase_fix_matches_anchor_sign():
+    """A globally flipped oracle prediction carries ~zero mode loss after the phase fix."""
+
     # Oracle model returning the exact FEM anchor labels with every mode
     # globally flipped.  The batch is the anchor parameters themselves, so
     # both pinn_loss arms query identical inputs and the oracle answers
@@ -129,16 +136,21 @@ def test_phase_fix_matches_anchor_sign():
     # phase fix: mode ~ 0, while a missing phase fix would score
     # (phi - (-phi))^2 = 4 phi^2 = O(1) (modes are M-orthonormal).
     class FlippedOracle(torch.nn.Module):
+        """Oracle model returning exact FEM labels with every mode globally flipped."""
+
         def forward(self, x):
             n = x.shape[0]
-            return (_ANCHORS["u_red"][:n],
-                    _ANCHORS["omega"][:n].log(),
-                    -_ANCHORS["phi"][:n])
+            return (
+                _ANCHORS["u_red"][:n],
+                _ANCHORS["omega"][:n].log(),
+                -_ANCHORS["phi"][:n],
+            )
 
     oracle = FlippedOracle()
-    total, comp = pinn_loss(oracle, _ANCHORS["params"], _RESIDUAL_FN,
-                            _ANCHORS, weights=(1.0, 100.0, 10.0))
-    assert comp["sup"].item() == 0.0                      # exact labels
-    assert comp["mode"].item() < 1e-10                    # flip recovered
-    assert comp["eq"].item() < 1e-10                      # FEM-consistent u
-    assert comp["eig_reg"].item() < 1e-10                 # sign-invariant
+    total, comp = pinn_loss(
+        oracle, _ANCHORS["params"], _RESIDUAL_FN, _ANCHORS, weights=(1.0, 100.0, 10.0)
+    )
+    assert comp["sup"].item() == 0.0  # exact labels
+    assert comp["mode"].item() < 1e-10  # flip recovered
+    assert comp["eq"].item() < 1e-10  # FEM-consistent u
+    assert comp["eig_reg"].item() < 1e-10  # sign-invariant

@@ -24,6 +24,7 @@ symmetric standard problem via a Cholesky transform of M; geometric
 stiffness is rotated to global coordinates along each member's transverse
 direction t_e = (-s_e, c_e).
 """
+
 import math
 
 import torch
@@ -48,19 +49,27 @@ def _member_matrices():
     M_e = (rho*A*L/6) [[2 I, I], [I, 2 I]] with I the 2x2 identity —
     orientation-independent, so rigid translation gives u'Mu = rho*A*L exactly.
     """
-    L = geometry.element_lengths().to(_DTYPE)                    # (11,)
+    L = geometry.element_lengths().to(_DTYPE)  # (11,)
     c, s = geometry.element_directions()
-    d = torch.stack([c, s], dim=-1).to(_DTYPE)                   # (11, 2)
-    G = d.unsqueeze(-1) * d.unsqueeze(-2)                        # (11, 2, 2)
-    k = geometry.E * geometry.AREA / L                           # (11,)
-    K_e = k.view(-1, 1, 1) * torch.cat([                         # (11, 4, 4)
-        torch.cat([G, -G], dim=-1),
-        torch.cat([-G, G], dim=-1), ], dim=-2)
-    m = geometry.RHO * geometry.AREA * L / 6.0                   # (11,)
+    d = torch.stack([c, s], dim=-1).to(_DTYPE)  # (11, 2)
+    G = d.unsqueeze(-1) * d.unsqueeze(-2)  # (11, 2, 2)
+    k = geometry.E * geometry.AREA / L  # (11,)
+    K_e = k.view(-1, 1, 1) * torch.cat(
+        [  # (11, 4, 4)
+            torch.cat([G, -G], dim=-1),
+            torch.cat([-G, G], dim=-1),
+        ],
+        dim=-2,
+    )
+    m = geometry.RHO * geometry.AREA * L / 6.0  # (11,)
     I2 = torch.eye(2, dtype=_DTYPE)
-    M_e = m.view(-1, 1, 1) * torch.cat([                         # (11, 4, 4)
-        torch.cat([2 * I2, I2], dim=-1),
-        torch.cat([I2, 2 * I2], dim=-1), ], dim=-2).expand(11, 4, 4)
+    M_e = m.view(-1, 1, 1) * torch.cat(
+        [  # (11, 4, 4)
+            torch.cat([2 * I2, I2], dim=-1),
+            torch.cat([I2, 2 * I2], dim=-1),
+        ],
+        dim=-2,
+    ).expand(11, 4, 4)
     return K_e, M_e
 
 
@@ -76,7 +85,7 @@ def _assemble():
     global _K, _M
     if _K is None or _M is None:
         K_e, M_e = _member_matrices()
-        dofs = _dof_map()                                        # (11, 4)
+        dofs = _dof_map()  # (11, 4)
         n_mem, blk = dofs.shape
         # Flat (row, col, val) triples: entry (a, b) of member e lands at
         # K[dofs[e, a], dofs[e, b]]. Duplicate (row, col) pairs across members
@@ -145,7 +154,7 @@ def axial_forces(u_full):
     c, s = geometry.element_directions()
     c = c.to(_DTYPE)
     s = s.to(_DTYPE)
-    k = geometry.E * geometry.AREA / L                             # (11,)
+    k = geometry.E * geometry.AREA / L  # (11,)
     return (k * (c * dux + s * duy)).to(u_full.dtype)
 
 
@@ -170,13 +179,16 @@ def _kg_pattern():
     global _KG_PATTERN
     if _KG_PATTERN is None:
         c, s = geometry.element_directions()
-        t = torch.stack([-s, c], dim=-1).to(_DTYPE)         # (11, 2)
-        G_perp = t.unsqueeze(-1) * t.unsqueeze(-2)          # (11, 2, 2)
-        kg = torch.cat([                                   # (11, 4, 4)
-            torch.cat([G_perp, -G_perp], dim=-1),
-            torch.cat([-G_perp, G_perp], dim=-1),
-        ], dim=-2)
-        dmap = _dof_map()                                   # (11, 4)
+        t = torch.stack([-s, c], dim=-1).to(_DTYPE)  # (11, 2)
+        G_perp = t.unsqueeze(-1) * t.unsqueeze(-2)  # (11, 2, 2)
+        kg = torch.cat(
+            [  # (11, 4, 4)
+                torch.cat([G_perp, -G_perp], dim=-1),
+                torch.cat([-G_perp, G_perp], dim=-1),
+            ],
+            dim=-2,
+        )
+        dmap = _dof_map()  # (11, 4)
         e_idx = torch.arange(11).view(11, 1, 1).expand(11, 4, 4)
         rows = dmap[:, :, None].expand(11, 4, 4)
         cols = dmap[:, None, :].expand(11, 4, 4)
@@ -194,7 +206,7 @@ def _reduced_K_and_M_chol():
         idx = torch.tensor(geometry.FREE_DOFS)
         _K_RED = K.index_select(-2, idx).index_select(-1, idx)
         M_red = M.index_select(-2, idx).index_select(-1, idx)
-        _M_CHOL = torch.linalg.cholesky(M_red)              # lower triangular
+        _M_CHOL = torch.linalg.cholesky(M_red)  # lower triangular
     return _K_RED, _M_CHOL
 
 
@@ -225,9 +237,11 @@ def modal_solve(u_full, n_modes=3):
     # A = L^-1 S L^-T, done with two triangular solves (both broadcast):
     #   Y1 = L^-1 S;  A = (L^-1 Y1^T)^T
     Y1 = torch.linalg.solve_triangular(L_M, S, upper=False)
-    A = torch.linalg.solve_triangular(L_M, Y1.transpose(-1, -2), upper=False).transpose(-1, -2)
-    A = 0.5 * (A + A.transpose(-1, -2))                     # kill roundoff asymmetry
-    eigvals, eigvecs = torch.linalg.eigh(A)                 # ascending, orthonormal
+    A = torch.linalg.solve_triangular(L_M, Y1.transpose(-1, -2), upper=False).transpose(
+        -1, -2
+    )
+    A = 0.5 * (A + A.transpose(-1, -2))  # kill roundoff asymmetry
+    eigvals, eigvecs = torch.linalg.eigh(A)  # ascending, orthonormal
     omegas = torch.sqrt(eigvals[..., :n_modes])
     modes = torch.linalg.solve_triangular(
         L_M.transpose(-1, -2), eigvecs[..., :n_modes], upper=True
@@ -241,8 +255,8 @@ def phase_fixed(phi):
     phi: (..., 11, n) with modes as columns -> same shape. Batched; a
     globally negated mode maps to the identical fixed mode.
     """
-    lead_idx = phi.abs().argmax(dim=-2)                     # (..., n)
-    lead = phi.gather(-2, lead_idx.unsqueeze(-2))           # (..., 1, n)
+    lead_idx = phi.abs().argmax(dim=-2)  # (..., n)
+    lead = phi.gather(-2, lead_idx.unsqueeze(-2))  # (..., 1, n)
     sign = lead.sign()
     sign = torch.where(sign == 0, torch.ones_like(sign), sign)
     return phi * sign
