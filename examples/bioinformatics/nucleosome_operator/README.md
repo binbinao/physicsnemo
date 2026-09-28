@@ -156,9 +156,13 @@ exits 0 on PASS, so it can gate CI. It writes into the checkpoint directory:
 - `gamma_sweep.png`: profile contrast and mean occupancy vs ``gamma``,
 - `error_structure.png`: error histogram and error vs ``gamma``.
 
-For the step-by-step operational walkthrough (install, smoke test, training,
-acceptance, inference, ablation, troubleshooting), see `RUNBOOK.md`. For the
-API reference and the configuration table, see `USER_GUIDE.md`.
+Three companion documents ship with the example: `RUNBOOK.md` is the
+step-by-step operational walkthrough (install, smoke test, training,
+acceptance, inference, ablation, troubleshooting), `USER_GUIDE.md` is the API
+and configuration reference, and `PLAYBOOK.md` is the goal/symptom-indexed
+decision guide (tuning levers with measured effects, diagnosis tables,
+extension recipe, anti-patterns, and the evidence protocol for independently
+re-checking a reproduction claim).
 
 ## Additional Information
 
