@@ -83,6 +83,12 @@ The several examples inside PhysicsNeMo can be classified based on their domains
 |[Cardiovascular Simulations*](./healthcare/bloodflow_1d_mgn/)|MeshGraphNet|
 |[Brain Anomaly Detection](./healthcare/brain_anomaly_detection/)|FNO|
 
+### Bioinformatics
+
+|Use case|Model|
+| --- | --- |
+|[Nucleosome Positioning Operator](./bioinformatics/nucleosome_operator/)|FNO|
+
 ### Additive Manufacturing
 
 |Use case|Model|
