@@ -25,7 +25,9 @@ python -c "import physicsnemo, torch, hydra, sympy, matplotlib; print('ok')"
 ```
 
 **故障**：
-- `ModuleNotFoundError: sympy` → `pip install sympy>=1.12`（requirements.txt 已含，但手动单装 physicsnemo 会漏）
+
+- `ModuleNotFoundError: sympy` → `pip install sympy>=1.12`
+  （requirements.txt 已含，但手动单装 physicsnemo 会漏）
 - `torch.cuda.is_available()` 返回 False → 检查 `nvidia-smi`；无 GPU 则所有 `device=cuda` 改为 `device=cpu`，且只做冒烟不做完整训练
 
 ## 步骤 2：进入案例目录
@@ -50,13 +52,14 @@ python train.py epochs=400 device=cpu log_every=100
 [2026-09-23 12:05:36,580][main][INFO] - froze stability envelope P_MAX = 11871.275316 N
 [2026-09-23 12:05:36,581][main][INFO] - running FEM physics self-tests...
 [2026-09-23 12:05:36,977][main][INFO] - FEM self-tests passed
-[2026-09-23 12:05:37,376][main][INFO] - step      1  eq=3.9650e+07 sup=1.2957e-02 mode=3.2287e+01 eig_reg=3.3342e+07  [328.3 ms/step]
-[2026-09-23 12:05:37,658][main][INFO] - step      5  eq=3.5066e+07 sup=1.2860e-02 mode=3.2111e+01 eig_reg=9.4056e+06  [122.0 ms/step]
+[...][main][INFO] - step      1  eq=3.9650e+07 sup=1.2957e-02 mode=3.2287e+01 ...
+[...][main][INFO] - step      5  eq=3.5066e+07 sup=1.2860e-02 mode=3.2111e+01 ...
 ...
 checkpoint written to outputs/<date>/<time>/model.pt
 ```
 
 **判断点**：
+
 - 看到 `FEM self-tests passed` → 物理求解器正确
 - 看到 `checkpoint written` → 流程通
 - 若报稳定性扫描失败 → 几何文件被改动过，恢复 `helpers/geometry.py`
@@ -73,7 +76,7 @@ python train.py
 [2026-09-23 ...][main][INFO] - froze stability envelope P_MAX = 11871.275316 N
 [2026-09-23 ...][main][INFO] - running FEM physics self-tests...
 [2026-09-23 ...][main][INFO] - FEM self-tests passed
-[2026-09-23 ...][main][INFO] - step   1000  eq=1.2e+02 sup=3.4e-01 mode=2.1e+01 eig_reg=...  [... ms/step]
+[...][main][INFO] - step   1000  eq=1.2e+02 sup=3.4e-01 mode=2.1e+01 ...
 [2026-09-23 ...][main][INFO] - val disp_rel_l2=... freq_rel_err=...
 ...
 [2026-09-23 ...][main][INFO] - step  40000  ...
@@ -81,6 +84,7 @@ checkpoint written to outputs/2026-09-23/<time>/model.pt
 ```
 
 **判断点**：
+
 - val `disp_rel_l2` 与 `freq_rel_err` 应整体随训练下降（in-sample 监控，非泛化指标）
 - 若 loss 震荡不降：检查 `weight_eq/sup/mode` 是否被覆盖为失衡值；默认值经扫参平衡
 - 中断续练：不支持断点续训，需从头重跑（23 分钟可接受）
@@ -111,11 +115,13 @@ VERDICT: PASS
 ```
 
 **判断点**：
+
 - `VERDICT: PASS` + exit code 0 → 模型达标
 - 数字与上表不完全一致 → 正常（GPU 浮点非确定性），但数量级与趋势必须一致
 - `VERDICT: FAIL` → 检查是否用了完整 40000 步训练（冒烟 checkpoint 不达标）
 
 **产出**（写入 checkpoint 目录）：
+
 - `error_report.json`——200 工况逐案例误差 + 聚合 + verdict
 - `deformation_comparison.png`——3 工况 FEM vs PINN 变形叠加图
 - `frequency_load_curves.png`——ω_i(P) 曲线（FEM 实线 + PINN 散点）
@@ -146,7 +152,9 @@ geometry.P_MAX = float(ckpt["p_max"])
 model = TrussPINN(); model.load_state_dict(ckpt["state_dict"]); model.eval()
 
 # 预测：节点 1 向下 5000 N；节点 4 向右 8000 N
-n_idx = torch.tensor([1, 4]); theta = torch.tensor([-torch.pi/2, 0.0]); P = torch.tensor([-5000.0, 8000.0])
+n_idx = torch.tensor([1, 4])
+theta = torch.tensor([-torch.pi/2, 0.0])
+P = torch.tensor([-5000.0, 8000.0])
 x = encode_params(n_idx, theta, P)
 with torch.no_grad():
     u_hat, log_omega_hat, phi_hat = model(x)
@@ -170,6 +178,7 @@ tensor([...])
 ```
 
 **参数含义**：
+
 - `n_idx`：载荷节点号，必须是 `geometry.LOADABLE_NODES` 中的 `(1, 2, 4, 5, 6)` 之一
 - `theta`：弧度，`-π/2` = 向下，`0` = 向右，`π/2` = 向上
 - `P`：有符号牛顿，负 = 反向；|P| 不得超过 P_MAX（11871 N）

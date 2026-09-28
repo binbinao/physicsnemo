@@ -21,7 +21,9 @@ cd examples/structural_mechanics/truss_pinn
 python train.py
 ```
 
-启动序列（~15 s）：冻结稳定包络 P_MAX → FEM 物理自检门 → 训练 40000 步（Tesla T4 约 23 分钟）。checkpoint 写入 Hydra 运行目录 `outputs/<date>/<time>/model.pt`。
+启动序列（~15 s）：冻结稳定包络 P_MAX → FEM 物理自检门 → 训练 40000 步
+（Tesla T4 约 23 分钟）。checkpoint 写入 Hydra 运行目录
+`outputs/<date>/<time>/model.pt`。
 
 ### 配置参数（`conf/config.yaml`，全部可用命令行覆盖）
 
@@ -63,11 +65,14 @@ python evaluate.py outputs/2026-09-21/10-27-02/model.pt   # 显式指定
 - `deformation_comparison.png`——3 个工况的 FEM vs PINN 变形叠加图
 - `frequency_load_curves.png`——41 点 P 扫描的 ω_i(P) 曲线（FEM 实线 + PINN 散点）
 
-评估准则（spec §2.4）：位移相对 L2 误差的 median AND P95 < 5%，且每阶频率相对误差的 median AND P95 < 2%。`evaluate.py` 打印 VERDICT 并以 exit code 报告（0 = PASS）。
+评估准则（spec §2.4）：位移相对 L2 误差的 median AND P95 < 5%，且每阶频率相对
+误差的 median AND P95 < 2%。`evaluate.py` 打印 VERDICT 并以 exit code 报告
+（0 = PASS）。
 
 ## 4. 用训练好的模型做预测
 
-**前提**：先跑过 `python train.py`（产生 `outputs/<date>/<time>/model.pt`）。以下代码在 `examples/structural_mechanics/truss_pinn/` 目录下运行。
+**前提**：先跑过 `python train.py`（产生 `outputs/<date>/<time>/model.pt`）。
+以下代码在 `examples/structural_mechanics/truss_pinn/` 目录下运行。
 
 ```python
 import sys, torch
@@ -100,7 +105,8 @@ omega_hat = log_omega_hat.exp()                 # (2, 3) 频率 rad/s
 
 ### 输出张量的物理含义
 
-- **自由 DOF 排序**：`geometry.FREE_DOFS` 给出 11 个自由自由度的全局 DOF 编号（14 个总 DOF 中去掉支座 0、1、7）。展开到完整 14 维位移向量：
+- **自由 DOF 排序**：`geometry.FREE_DOFS` 给出 11 个自由自由度的全局 DOF 编号
+  （14 个总 DOF 中去掉支座 0、1、7）。展开到完整 14 维位移向量：
 
   ```python
   u14 = torch.zeros(14, dtype=torch.float64)
@@ -108,10 +114,14 @@ omega_hat = log_omega_hat.exp()                 # (2, 3) 频率 rad/s
   # u14[0:2] = 节点 0 的 (ux, uy)，u14[2:4] = 节点 1，依此类推
   ```
 
-- **载荷节点编码**：`encode_params` 把节点号映射为在 `geometry.LOADABLE_NODES`（`(1, 2, 4, 5, 6)`）中的**位置**做 one-hot——传入的是节点号，不是位置下标。
+- **载荷节点编码**：`encode_params` 把节点号映射为在
+  `geometry.LOADABLE_NODES`（`(1, 2, 4, 5, 6)`）中的**位置**做 one-hot——
+  传入的是节点号，不是位置下标。
 - **P 的符号**：正 P 沿 `theta` 方向，负 P 反向。`theta + π` 与 `(theta, -P)` 是同一物理载荷。
 - **适用范围**：`|P| ≤ P_MAX`（checkpoint 中记录的冻结包络，默认 11871 N）。超出此范围稳定包络不保证，PINN 未在该区域训练。
-- **精度预期**：位移 median 误差 ~0.28%，但 mid-gap theta（远离锚点方向）+ 小 |P| 工况可达 ~15%；频率各阶 median ~0.24–0.30%，最坏 0.87%。详见 `README.md` 的误差结构分析。
+- **精度预期**：位移 median 误差 ~0.28%，但 mid-gap theta（远离锚点方向）+
+  小 |P| 工况可达 ~15%；频率各阶 median ~0.24–0.30%，最坏 0.87%。详见
+  `README.md` 的误差结构分析。
 
 ## 5. 测试
 
@@ -122,7 +132,12 @@ python -m pytest tests/ -v    # 40 项，覆盖几何/FEM/采样/模型/稳定�
 
 ## 6. 常见问题
 
-- **`ModuleNotFoundError: sympy`**：`pip install sympy>=1.12`（requirements.txt 已含；若跳过 `-r requirements.txt` 直接装会缺）。
+- **`ModuleNotFoundError: sympy`**：`pip install sympy>=1.12`（requirements.txt
+  已含；若跳过 `-r requirements.txt` 直接装会缺）。
 - **训练 loss 不降**：检查 `weight_eq/sup/mode` 是否被意外覆盖为量级失衡的值；默认三权重经扫参平衡（见 README）。
-- **`evaluate.py` 报 NA/不稳定**：checkpoint 的 `p_max` 与当前 `geometry.P_MAX` 不一致；`load_model` 会自动以 checkpoint 为准，勿混用不同冻结值的 checkpoint 与代码版本。
-- **想换桁架拓扑/材料**：改 `helpers/geometry.py`（`NODES_XY`、`ELEMENTS`、`SUPPORT_DOFS`、材料常数），删除旧 `outputs/`，重跑 `train.py`（P_MAX 会按新几何重算）。振型监督的锚点网格在 `helpers/sampling.py`，与节点数联动。
+- **`evaluate.py` 报 NA/不稳定**：checkpoint 的 `p_max` 与当前 `geometry.P_MAX`
+  不一致；`load_model` 会自动以 checkpoint 为准，勿混用不同冻结值的 checkpoint
+  与代码版本。
+- **想换桁架拓扑/材料**：改 `helpers/geometry.py`（`NODES_XY`、`ELEMENTS`、
+  `SUPPORT_DOFS`、材料常数），删除旧 `outputs/`，重跑 `train.py`（P_MAX 会按新
+  几何重算）。振型监督的锚点网格在 `helpers/sampling.py`，与节点数联动。
